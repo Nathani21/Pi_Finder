@@ -47,6 +47,47 @@ def compute_pi_digits(n):
     s = str(pi // 10 ** guard)  # "3" followed by n decimals
     return s[1:n + 1]
 
+PALETTE = ["#000000", "#8b4513", "#e63946", "#f77f00", "#fcbf49",
+           "#2a9d8f", "#1d6fd8", "#7b2cbf", "#9aa0a6", "#ffffff"]
+
+class PixelWindow(tk.Toplevel):
+    def __init__(self, parent, digits):
+        super().__init__(parent)
+        self.title("Pi as pixels")
+        self.digits = digits
+        self.img = None  # keep a reference or tkinter will discard the image
+
+        bar = ttk.Frame(self, padding=10)
+        bar.pack(fill="x")
+        ttk.Label(bar, text="Width (pixels):").pack(side="left")
+        self.width_var = tk.IntVar(value=100)
+        spin = ttk.Spinbox(bar, from_=10, to=316, textvariable=self.width_var,
+                           width=6, command=self.draw)
+        spin.pack(side="left", padx=6)
+        spin.bind("<Return>", lambda e: self.draw())
+        self.info = tk.StringVar()
+        ttk.Label(bar, textvariable=self.info).pack(side="left", padx=12)
+
+        self.label = ttk.Label(self)  # a label can display an image
+        self.label.pack(padx=10, pady=10)
+        self.draw()
+
+    def draw(self):
+        try:
+            w = int(self.width_var.get())
+        except (tk.TclError, ValueError):
+            return
+        w = max(10, min(316, w))
+        rows = min(w * w, len(self.digits)) // w
+        img = tk.PhotoImage(width=w, height=rows)
+        for r in range(rows):
+            row = self.digits[r * w:(r + 1) * w]
+            img.put("{" + " ".join(PALETTE[int(d)] for d in row) + "}", to=(0, r))
+        zoom = max(1, 600 // w)  # make small grids bigger so they stay visible
+        self.img = img.zoom(zoom, zoom)
+        self.label.config(image=self.img)
+        self.info.set(f"{w} x {rows} pixels = first {w * rows:,} digits, zoom x{zoom}")
+
 class PiFinderApp:
     def __init__(self, root):
         self.root = root
@@ -78,6 +119,9 @@ class PiFinderApp:
         self.next_btn = ttk.Button(top, text="Next >", command=lambda: self.step(1), state="disabled")
         self.next_btn.pack(side="left")
 
+        self.pixels_btn = ttk.Button(top, text="Pixels", command=self.open_pixels, state="disabled")
+        self.pixels_btn.pack(side="left", padx=(12, 0))
+
         self.status = tk.StringVar(value="Computing pi digits...")
         ttk.Label(root, textvariable=self.status, padding=(10, 0)).pack(anchor="w")
 
@@ -93,6 +137,9 @@ class PiFinderApp:
         """The text we're searching: digits or letters, depending on the mode."""
         return self.letters if self.mode.get() == "Letters" else self.digits
 
+    def open_pixels(self):
+        PixelWindow(self.root, self.digits)
+
     def load_digits(self):
         digits = compute_pi_digits(100_000)
         self.root.after(0, self.digits_ready, digits)
@@ -101,6 +148,7 @@ class PiFinderApp:
         self.digits = digits
         self.letters = digits_to_letters(digits)
         self.search_btn.config(state="normal")
+        self.pixels_btn.config(state="normal")
         self.status.set(f"Loaded {len(digits):,} digits of pi.")
         self.show_window(0, 0)
 
