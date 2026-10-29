@@ -1,3 +1,5 @@
+from math import isqrt
+
 import threading
 
 import tkinter as tk
@@ -7,6 +9,7 @@ import sys
 sys.set_int_max_str_digits(0)  # 0 = no limit
 
 CONTEXT = 150  # digits shown on each side of a match
+DIGITS = 1_000_000
 
 def find_all(digits, sequence):
     """Return every start index of sequence in digits (overlaps allowed)."""
@@ -25,9 +28,34 @@ def digits_to_letters(digits):
     return "".join(letters)
 
 def compute_pi_digits(n):
-    """Return the first n digits of pi after the decimal point, as a string."""
-    guard = 10  # extra digits so rounding errors don't hit the ones we keep
-    scale = 10 ** (n + guard)
+    """First n digits of pi after the decimal point (Chudnovsky algorithm)."""
+    guard = 10
+    digits = n + guard
+    terms = digits // 14 + 2  # each term adds about 14 digits
+
+    def bs(a, b):
+        """Binary splitting: combine terms a..b-1 into three big integers."""
+        if b - a == 1:
+            if a == 0:
+                Pab = Qab = 1
+            else:
+                Pab = (6 * a - 5) * (2 * a - 1) * (6 * a - 1)
+                Qab = a * a * a * 10939058860032000  # 640320**3 // 24
+            Tab = Pab * (13591409 + 545140134 * a)
+            if a % 2:
+                Tab = -Tab
+            return Pab, Qab, Tab
+        m = (a + b) // 2
+        Pam, Qam, Tam = bs(a, m)
+        Pmb, Qmb, Tmb = bs(m, b)
+        return Pam * Pmb, Qam * Qmb, Qmb * Tam + Pam * Tmb
+
+    _, Q, T = bs(0, terms)
+    one = 10 ** digits
+    sqrt_c = isqrt(10005 * one * one)  # integer square root of 10005
+    pi = (Q * 426880 * sqrt_c) // T
+    s = str(pi // 10 ** guard)
+    return s[1:n + 1]
 
     def arctan_inv(x):
         # arctan(1/x) = 1/x - 1/(3x^3) + 1/(5x^5) - ...
@@ -141,7 +169,7 @@ class PiFinderApp:
         PixelWindow(self.root, self.digits)
 
     def load_digits(self):
-        digits = compute_pi_digits(100_000)
+        digits = compute_pi_digits(DIGITS)
         self.root.after(0, self.digits_ready, digits)
 
     def digits_ready(self, digits):
