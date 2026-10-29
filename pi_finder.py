@@ -6,6 +6,8 @@ from tkinter import ttk
 import sys
 sys.set_int_max_str_digits(0)  # 0 = no limit
 
+CONTEXT = 150  # digits shown on each side of a match
+
 def find_all(digits, sequence):
     """Return every start index of sequence in digits (overlaps allowed)."""
     hits = []
@@ -42,8 +44,11 @@ class PiFinderApp:
     def __init__(self, root):
         self.root = root
         self.digits = ""
+        self.hits = []
+        self.current = 0
+        self.seq = ""
         root.title("Pi Pattern Finder")
-        root.geometry("700x300")
+        root.geometry("760x500")
 
         top = ttk.Frame(root, padding=10)
         top.pack(fill="x")
@@ -54,33 +59,72 @@ class PiFinderApp:
         self.entry.bind("<Return>", lambda e: self.search())
         self.search_btn = ttk.Button(top, text="Search", command=self.search, state="disabled")
         self.search_btn.pack(side="left")
+        self.prev_btn = ttk.Button(top, text="< Prev", command=lambda: self.step(-1), state="disabled")
+        self.prev_btn.pack(side="left", padx=(12, 2))
+        self.next_btn = ttk.Button(top, text="Next >", command=lambda: self.step(1), state="disabled")
+        self.next_btn.pack(side="left")
 
         self.status = tk.StringVar(value="Computing pi digits...")
-        ttk.Label(root, textvariable=self.status, padding=10).pack(anchor="w")
+        ttk.Label(root, textvariable=self.status, padding=(10, 0)).pack(anchor="w")
+
+        self.text = tk.Text(root, wrap="char", font=("Courier New", 14),
+                            padx=10, pady=10, state="disabled")
+        self.text.pack(fill="both", expand=True, padx=10, pady=10)
+        self.text.tag_configure("hit", background="#f5c542", foreground="black")
 
         threading.Thread(target=self.load_digits, daemon=True).start()
 
     def load_digits(self):
         digits = compute_pi_digits(100_000)
-        self.root.after(0, self.digits_ready, digits)  # hand the result back to the GUI thread
+        self.root.after(0, self.digits_ready, digits)
 
     def digits_ready(self, digits):
         self.digits = digits
         self.search_btn.config(state="normal")
         self.status.set(f"Loaded {len(digits):,} digits of pi.")
+        self.show_window(0, 0)
 
     def search(self):
-        if not self.digits:  # Enter key works even while the button is disabled
+        if not self.digits:
             return
         seq = self.entry.get().strip()
         if not seq.isdigit():
             self.status.set("Enter digits only (0-9).")
             return
-        hits = find_all(self.digits, seq)
-        if not hits:
+        self.seq = seq
+        self.hits = find_all(self.digits, seq)
+        self.current = 0
+        if not self.hits:
             self.status.set(f"'{seq}' not found in the first {len(self.digits):,} digits.")
-        else:
-            self.status.set(f"Found {len(hits):,} time(s). First at digit {hits[0] + 1:,}.")
+            self.prev_btn.config(state="disabled")
+            self.next_btn.config(state="disabled")
+            return
+        self.prev_btn.config(state="normal")
+        self.next_btn.config(state="normal")
+        self.show_current()
+
+    def step(self, delta):
+        if self.hits:
+            self.current = (self.current + delta) % len(self.hits)  # wraps around
+            self.show_current()
+
+    def show_current(self):
+        pos = self.hits[self.current]
+        self.status.set(
+            f"Match {self.current + 1} of {len(self.hits):,} "
+            f"- starts at digit {pos + 1:,}"
+        )
+        self.show_window(pos, len(self.seq))
+
+    def show_window(self, pos, length):
+        start = max(0, pos - CONTEXT)
+        end = min(len(self.digits), pos + length + CONTEXT)
+        self.text.config(state="normal")   # unlock to edit
+        self.text.delete("1.0", "end")
+        self.text.insert("end", self.digits[start:pos])
+        self.text.insert("end", self.digits[pos:pos + length], "hit")  # highlighted part
+        self.text.insert("end", self.digits[pos + length:end])
+        self.text.config(state="disabled")  # lock so it can't be typed in
 
 if __name__ == "__main__":
     root = tk.Tk()
