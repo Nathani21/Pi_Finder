@@ -121,6 +121,8 @@ class PiFinderApp:
         self.root = root
         self.digits = ""
         self.letters = ""
+        self.letters_shift = ""
+        self.shift = tk.BooleanVar(value=False)
         self.hits = []
         self.current = 0
         self.seq = ""
@@ -132,6 +134,7 @@ class PiFinderApp:
 
         ttk.Label(top, text="Mode:").pack(side="left")
         self.mode = ttk.Combobox(top, values=["Numbers", "Letters"], width=9, state="readonly")
+        ttk.Checkbutton(top, text="Shift 1", variable=self.shift, command=self.on_mode_change).pack(side="left", padx=(0, 12))
         self.mode.set("Numbers")
         self.mode.pack(side="left", padx=(4, 12))
         self.mode.bind("<<ComboboxSelected>>", self.on_mode_change)
@@ -162,8 +165,10 @@ class PiFinderApp:
 
     @property
     def stream(self):
-        """The text we're searching: digits or letters, depending on the mode."""
-        return self.letters if self.mode.get() == "Letters" else self.digits
+        """The text we're searching: digits, letters, or shifted letters."""
+        if self.mode.get() == "Letters":
+            return self.letters_shift if self.shift.get() else self.letters
+        return self.digits
 
     def open_pixels(self):
         PixelWindow(self.root, self.digits)
@@ -175,6 +180,7 @@ class PiFinderApp:
     def digits_ready(self, digits):
         self.digits = digits
         self.letters = digits_to_letters(digits)
+        self.letters_shift = digits_to_letters(digits[1:])
         self.search_btn.config(state="normal")
         self.pixels_btn.config(state="normal")
         self.status.set(f"Loaded {len(digits):,} digits of pi.")
@@ -221,8 +227,10 @@ class PiFinderApp:
     def show_current(self):
         pos = self.hits[self.current]
         if self.mode.get() == "Letters":
-            # letter i was made from digits 2i+1 and 2i+2 (counting from 1)
-            where = f"letter {pos + 1:,} (digits {2 * pos + 1:,}-{2 * (pos + len(self.seq)):,})"
+            off = 1 if self.shift.get() else 0
+            first = 2 * pos + 1 + off
+            last = 2 * (pos + len(self.seq)) + off
+            where = f"letter {pos + 1:,} (digits {first:,}-{last:,})"
         else:
             where = f"digit {pos + 1:,}"
         self.status.set(f"Match {self.current + 1} of {len(self.hits):,} - starts at {where}")
