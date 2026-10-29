@@ -126,6 +126,117 @@ class PixelWindow(tk.Toplevel):
         self.label.config(image=self.img)
         self.info.set(f"{w} x {rows} pixels = first {w * rows:,} digits, zoom x{zoom}")
 
+BW_TABLE = str.maketrans("0123456789", "0000011111")  # 0-4 -> black (0), 5-9 -> white (1)
+CELL = 36    # size of a square in the shape editor
+PATCH = 28   # squares shown around a match
+ZOOM = 16    # screen pixels per square in the match view
+
+def bw_rows(digits, width):
+    """Lay the digits out as rows of '0' (black) and '1' (white), `width` per row."""
+    bits = digits.translate(BW_TABLE)
+    return [bits[i:i + width] for i in range(0, len(bits) - width + 1, width)]
+
+def find_shape(rows, shape):
+    """shape is a list of strings like ["0110", "1001"]. Returns (row, col) of every match."""
+    sh, sw = len(shape), len(shape[0])
+    hits = []
+    for r in range(len(rows) - sh + 1):
+        c = rows[r].find(shape[0])  # find the shape's first row, then check the rest
+        while c != -1:
+            if all(rows[r + i][c:c + sw] == shape[i] for i in range(1, sh)):
+                hits.append((r, c))
+            c = rows[r].find(shape[0], c + 1)
+    return hits
+
+class ShapeWindow(tk.Toplevel):
+    def __init__(self, parent, digits):
+        super().__init__(parent)
+        self.title("Shape search")
+        self.digits = digits
+        self.rows = []
+        self.hits = []
+        self.current = 0
+        self.cells = [[0] * 4 for _ in range(4)]  # 0 = black, 1 = white
+
+        bar = ttk.Frame(self, padding=10)
+        bar.pack(fill="x")
+        ttk.Label(bar, text="Grid width:").pack(side="left")
+        self.width_var = tk.IntVar(value=100)
+        ttk.Spinbox(bar, from_=10, to=1000, textvariable=self.width_var, width=6).pack(side="left", padx=6)
+        ttk.Button(bar, text="Find shape", command=self.find).pack(side="left", padx=6)
+        ttk.Button(bar, text="< Prev", command=lambda: self.step(-1)).pack(side="left", padx=(12, 2))
+        ttk.Button(bar, text="Next >", command=lambda: self.step(1)).pack(side="left")
+
+        self.status = tk.StringVar(value="Click the squares to draw a shape, then press Find shape.")
+        ttk.Label(self, textvariable=self.status, padding=(10, 0)).pack(anchor="w")
+
+        body = ttk.Frame(self, padding=10)
+        body.pack()
+        self.editor = tk.Canvas(body, width=4 * CELL, height=4 * CELL, highlightthickness=1)
+        self.editor.pack(side="left", padx=(0, 20), anchor="n")
+        self.editor.bind("<Button-1>", self.toggle)
+        self.view = tk.Canvas(body, width=PATCH * ZOOM, height=PATCH * ZOOM, bg="#222222")
+        self.view.pack(side="left")
+        self.draw_editor()
+
+    def draw_editor(self):
+        self.editor.delete("all")
+        for r in range(4):
+            for c in range(4):
+                color = "white" if self.cells[r][c] else "black"
+                self.editor.create_rectangle(c * CELL, r * CELL, (c + 1) * CELL, (r + 1) * CELL,
+                                             fill=color, outline="#888888")
+
+    def toggle(self, event):
+        r, c = event.y // CELL, event.x // CELL
+        if 0 <= r < 4 and 0 <= c < 4:
+            self.cells[r][c] ^= 1  # flip 0 <-> 1
+            self.draw_editor()
+
+    def shape(self):
+        return ["".join(str(v) for v in row) for row in self.cells]
+
+    def find(self):
+        try:
+            width = max(10, min(1000, int(self.width_var.get())))
+        except (tk.TclError, ValueError):
+            self.status.set("Enter a number for the grid width.")
+            return
+        self.rows = bw_rows(self.digits, width)
+        self.hits = find_shape(self.rows, self.shape())
+        self.current = 0
+        if not self.hits:
+            self.status.set(f"Shape not found in {len(self.rows):,} rows of {width}.")
+            self.view.delete("all")
+            return
+        self.show_current()
+
+    def step(self, delta):
+        if self.hits:
+            self.current = (self.current + delta) % len(self.hits)
+            self.show_current()
+
+    def show_current(self):
+        r, c = self.hits[self.current]
+        width = len(self.rows[0])
+        self.status.set(f"Match {self.current + 1} of {len(self.hits):,} - row {r + 1:,}, "
+                        f"column {c + 1}, digit {r * width + c + 1:,}")
+        # pick a patch of the grid that contains the match and stays inside the grid
+        top = max(0, min(r - 12, len(self.rows) - PATCH))
+        left = max(0, min(c - 12, width - PATCH))
+        self.view.delete("all")
+        for y in range(PATCH):
+            if top + y >= len(self.rows):
+                break
+            row = self.rows[top + y]
+            for x in range(min(PATCH, len(row) - left)):
+                color = "white" if row[left + x] == "1" else "black"
+                self.view.create_rectangle(x * ZOOM, y * ZOOM, (x + 1) * ZOOM, (y + 1) * ZOOM,
+                                           fill=color, outline="")
+        self.view.create_rectangle((c - left) * ZOOM, (r - top) * ZOOM,
+                                   (c - left + 4) * ZOOM, (r - top + 4) * ZOOM,
+                                   outline="red", width=3)  # red box around the match
+
 class PiFinderApp:
     def __init__(self, root):
         self.root = root
@@ -137,7 +248,7 @@ class PiFinderApp:
         self.current = 0
         self.seq = ""
         root.title("Pi Pattern Finder")
-        root.geometry("900x500")
+        root.geometry("1000x500")
 
         top = ttk.Frame(root, padding=10)
         top.pack(fill="x")
@@ -163,6 +274,9 @@ class PiFinderApp:
         self.pixels_btn = ttk.Button(top, text="Pixels", command=self.open_pixels, state="disabled")
         self.pixels_btn.pack(side="left", padx=(12, 0))
 
+        self.shape_btn = ttk.Button(top, text="Shape", command=self.open_shapes, state="disabled")
+        self.shape_btn.pack(side="left", padx=(6, 0))
+
         self.status = tk.StringVar(value="Computing pi digits...")
         ttk.Label(root, textvariable=self.status, padding=(10, 0)).pack(anchor="w")
 
@@ -183,6 +297,9 @@ class PiFinderApp:
     def open_pixels(self):
         PixelWindow(self.root, self.digits)
 
+    def open_shapes(self):
+        ShapeWindow(self.root, self.digits)
+
     def load_digits(self):
         digits = compute_pi_digits(DIGITS)
         self.root.after(0, self.digits_ready, digits)
@@ -193,6 +310,7 @@ class PiFinderApp:
         self.letters_shift = digits_to_letters(digits[1:])
         self.search_btn.config(state="normal")
         self.pixels_btn.config(state="normal")
+        self.shape_btn.config(state="normal")
         self.status.set(f"Loaded {len(digits):,} digits of pi.")
         self.show_window(0, 0)
 
