@@ -148,6 +148,8 @@ def find_shape(rows, shape):
             c = rows[r].find(shape[0], c + 1)
     return hits
 
+MAX_SHAPE = 6   # biggest shape you can draw (6 x 6)
+
 class ShapeWindow(tk.Toplevel):
     def __init__(self, parent, digits):
         super().__init__(parent)
@@ -156,11 +158,24 @@ class ShapeWindow(tk.Toplevel):
         self.rows = []
         self.hits = []
         self.current = 0
-        self.cells = [[0] * 4 for _ in range(4)]  # 0 = black, 1 = white
+        self.found_size = (4, 4)  # size of the shape that produced self.hits
+        # keep a full 6x6 board so resizing doesn't lose your drawing; only the
+        # top-left h x w part is used (0 = black, 1 = white)
+        self.cells = [[0] * MAX_SHAPE for _ in range(MAX_SHAPE)]
 
         bar = ttk.Frame(self, padding=10)
         bar.pack(fill="x")
-        ttk.Label(bar, text="Grid width:").pack(side="left")
+        ttk.Label(bar, text="Shape:").pack(side="left")
+        self.h_var = tk.IntVar(value=4)
+        self.w_var = tk.IntVar(value=4)
+        for var in (self.h_var, self.w_var):
+            spin = ttk.Spinbox(bar, from_=2, to=MAX_SHAPE, textvariable=var, width=3,
+                               command=self.draw_editor)
+            spin.bind("<Return>", lambda e: self.draw_editor())
+            spin.pack(side="left", padx=(6, 0))
+            if var is self.h_var:
+                ttk.Label(bar, text="x").pack(side="left", padx=(6, 0))
+        ttk.Label(bar, text="Grid width:").pack(side="left", padx=(14, 0))
         self.width_var = tk.IntVar(value=100)
         ttk.Spinbox(bar, from_=10, to=1000, textvariable=self.width_var, width=6).pack(side="left", padx=6)
         ttk.Button(bar, text="Find shape", command=self.find).pack(side="left", padx=6)
@@ -172,29 +187,42 @@ class ShapeWindow(tk.Toplevel):
 
         body = ttk.Frame(self, padding=10)
         body.pack()
-        self.editor = tk.Canvas(body, width=4 * CELL, height=4 * CELL, highlightthickness=1)
+        self.editor = tk.Canvas(body, width=MAX_SHAPE * CELL, height=MAX_SHAPE * CELL,
+                                highlightthickness=1)
         self.editor.pack(side="left", padx=(0, 20), anchor="n")
         self.editor.bind("<Button-1>", self.toggle)
         self.view = tk.Canvas(body, width=PATCH * ZOOM, height=PATCH * ZOOM, bg="#222222")
         self.view.pack(side="left")
         self.draw_editor()
 
+    def size(self):
+        """Current shape size (height, width), kept between 2 and MAX_SHAPE."""
+        try:
+            h = max(2, min(MAX_SHAPE, int(self.h_var.get())))
+            w = max(2, min(MAX_SHAPE, int(self.w_var.get())))
+        except (tk.TclError, ValueError):
+            return 4, 4
+        return h, w
+
     def draw_editor(self):
+        h, w = self.size()
         self.editor.delete("all")
-        for r in range(4):
-            for c in range(4):
+        for r in range(h):
+            for c in range(w):
                 color = "white" if self.cells[r][c] else "black"
                 self.editor.create_rectangle(c * CELL, r * CELL, (c + 1) * CELL, (r + 1) * CELL,
                                              fill=color, outline="#888888")
 
     def toggle(self, event):
+        h, w = self.size()
         r, c = event.y // CELL, event.x // CELL
-        if 0 <= r < 4 and 0 <= c < 4:
+        if 0 <= r < h and 0 <= c < w:
             self.cells[r][c] ^= 1  # flip 0 <-> 1
             self.draw_editor()
 
     def shape(self):
-        return ["".join(str(v) for v in row) for row in self.cells]
+        h, w = self.size()
+        return ["".join(str(v) for v in row[:w]) for row in self.cells[:h]]
 
     def find(self):
         try:
@@ -204,9 +232,11 @@ class ShapeWindow(tk.Toplevel):
             return
         self.rows = bw_rows(self.digits, width)
         self.hits = find_shape(self.rows, self.shape())
+        self.found_size = self.size()
         self.current = 0
         if not self.hits:
-            self.status.set(f"Shape not found in {len(self.rows):,} rows of {width}.")
+            h, w = self.found_size
+            self.status.set(f"{h}x{w} shape not found in {len(self.rows):,} rows of {width}.")
             self.view.delete("all")
             return
         self.show_current()
@@ -218,10 +248,10 @@ class ShapeWindow(tk.Toplevel):
 
     def show_current(self):
         r, c = self.hits[self.current]
+        sh, sw = self.found_size
         width = len(self.rows[0])
         self.status.set(f"Match {self.current + 1} of {len(self.hits):,} - row {r + 1:,}, "
                         f"column {c + 1}, digit {r * width + c + 1:,}")
-        # pick a patch of the grid that contains the match and stays inside the grid
         top = max(0, min(r - 12, len(self.rows) - PATCH))
         left = max(0, min(c - 12, width - PATCH))
         self.view.delete("all")
@@ -234,8 +264,8 @@ class ShapeWindow(tk.Toplevel):
                 self.view.create_rectangle(x * ZOOM, y * ZOOM, (x + 1) * ZOOM, (y + 1) * ZOOM,
                                            fill=color, outline="")
         self.view.create_rectangle((c - left) * ZOOM, (r - top) * ZOOM,
-                                   (c - left + 4) * ZOOM, (r - top + 4) * ZOOM,
-                                   outline="red", width=3)  # red box around the match
+                                   (c - left + sw) * ZOOM, (r - top + sh) * ZOOM,
+                                   outline="red", width=3)
 
 class PiFinderApp:
     def __init__(self, root):
