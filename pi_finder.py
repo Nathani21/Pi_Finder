@@ -75,8 +75,9 @@ def compute_pi_digits(n):
     s = str(pi // 10 ** guard)  # "3" followed by n decimals
     return s[1:n + 1]
 
-PALETTE = ["#000000", "#8b4513", "#e63946", "#f77f00", "#fcbf49",
-           "#2a9d8f", "#1d6fd8", "#7b2cbf", "#9aa0a6", "#ffffff"]
+PALETTE = ["#000000", "#8b4513", "#e63946", "#f77f00", "#fcbf49", "#2a9d8f", "#1d6fd8", "#7b2cbf", "#9aa0a6", "#ffffff"]
+
+BW_PALETTE = ["#000000"] * 5 + ["#ffffff"] * 5
 
 class PixelWindow(tk.Toplevel):
     def __init__(self, parent, digits):
@@ -93,6 +94,12 @@ class PixelWindow(tk.Toplevel):
                            width=6, command=self.draw)
         spin.pack(side="left", padx=6)
         spin.bind("<Return>", lambda e: self.draw())
+        
+        self.view = ttk.Combobox(bar, values=["Colors", "Black & White"], width=13, state="readonly")
+        self.view.set("Colors")
+        self.view.pack(side="left", padx=6)
+        self.view.bind("<<ComboboxSelected>>", lambda e: self.draw())
+        
         self.info = tk.StringVar()
         ttk.Label(bar, textvariable=self.info).pack(side="left", padx=12)
 
@@ -107,10 +114,13 @@ class PixelWindow(tk.Toplevel):
             return
         w = max(10, min(316, w))
         rows = min(w * w, len(self.digits)) // w
+                
+        palette = BW_PALETTE if self.view.get() == "Black & White" else PALETTE
+                
         img = tk.PhotoImage(width=w, height=rows)
         for r in range(rows):
             row = self.digits[r * w:(r + 1) * w]
-            img.put("{" + " ".join(PALETTE[int(d)] for d in row) + "}", to=(0, r))
+            img.put("{" + " ".join(palette[int(d)] for d in row) + "}", to=(0, r))
         zoom = max(1, 600 // w)  # make small grids bigger so they stay visible
         self.img = img.zoom(zoom, zoom)
         self.label.config(image=self.img)
