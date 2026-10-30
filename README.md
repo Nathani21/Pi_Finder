@@ -1,4 +1,7 @@
 # Pi Finder
+
+[![Tests](https://github.com/Nathani21/Pi_Finder/actions/workflows/tests.yml/badge.svg)](https://github.com/Nathani21/Pi_Finder/actions/workflows/tests.yml)
+
 A Python GUI that searches the digits of pi for hidden patterns.
 
 ## Download (Windows)
